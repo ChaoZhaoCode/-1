@@ -5,7 +5,7 @@ type TargetPattern = {
   pattern: string;
   group?: string;
   meaning: string;
-  structureHint: string;
+  structureHint?: string;
   modelAnswer?: string;
 };
 
@@ -159,7 +159,7 @@ const semiCompletedHint = (targetPattern: TargetPattern) => {
     temookashikunai: "____てもおかしくないと思います。",
     "nomomuriwa-nai": "____のも無理はないと思います。"
   };
-  return hints[targetPattern.id] ?? targetPattern.structureHint;
+  return hints[targetPattern.id] ?? targetPattern.structureHint ?? targetPattern.modelAnswer ?? `${targetPattern.pattern}：____`;
 };
 
 const normalizeEvaluation = (value: unknown, fallback: Evaluation): Evaluation => {
@@ -198,7 +198,10 @@ const mockEvaluation = (body: EvaluateRequest, source: "deepseek" | "mock" = "mo
   const meaningful = hasJapanese(answer) && answer.length >= 6;
   const conversationMode = body.mode === "conversation";
   const passed = meaningful && (conversationMode || targetUsed || equivalentAccepted || body.mode === "card");
-  const fillInHint = body.attempt && body.attempt >= 2 ? semiCompletedHint(body.targetPattern) : body.targetPattern.structureHint;
+  const fillInHint =
+    body.attempt && body.attempt >= 2
+      ? semiCompletedHint(body.targetPattern)
+      : body.targetPattern.structureHint ?? body.targetPattern.modelAnswer ?? `${body.targetPattern.pattern}：____`;
 
   return {
     source,
