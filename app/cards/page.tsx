@@ -13,6 +13,7 @@ import {
   type TrainingPattern,
   type TrainingProgress
 } from "@/lib/training-system";
+import { SpeakButton, VoiceInputButton } from "@/components/speech-tools";
 
 type Evaluation = {
   source: "deepseek" | "mock";
@@ -194,6 +195,9 @@ export default function CardsPage() {
             <span className="small-label">
               中文意图 · 题目 {questionIndex + 1}/{activeQuestions.length}
             </span>
+            <div className="prompt-toolbar trailing">
+              <SpeakButton text={`${activeCard.pattern}。${activeCard.structureHint}`} label="播放句式" />
+            </div>
             <p>{activeQuestion.prompt}</p>
           </div>
 
@@ -223,6 +227,7 @@ export default function CardsPage() {
               <Send size={18} />
               {isLoading ? "评估中" : "提交纠正"}
             </button>
+            <VoiceInputButton onTranscript={(text) => setAnswer((current) => `${current}${current ? " " : ""}${text}`)} />
             <button className="secondary-action" onClick={resetCurrent}>
               <RotateCcw size={18} />
               重写
@@ -251,6 +256,7 @@ function PatternSummary({ pattern, status }: { pattern: TrainingPattern; status:
       <span className="status-pill">{statusLabels[status]}</span>
       <h3>{pattern.pattern}</h3>
       <p>{pattern.meaning}</p>
+      <SpeakButton text={`${pattern.pattern}。${pattern.structureHint}`} label="播放" />
       <small>{groupLabels[pattern.group]}</small>
     </div>
   );
@@ -282,6 +288,9 @@ function FeedbackPanel({
 
       <div className="rewrite-box">
         <span>示范</span>
+        <div className="rewrite-head">
+          <SpeakButton text={evaluation.rewrite || activeCard.modelAnswer || ""} label="播放示范" />
+        </div>
         <p>{evaluation.rewrite || activeCard.modelAnswer}</p>
       </div>
       <p className="feedback-copy">{evaluation.explanation}</p>

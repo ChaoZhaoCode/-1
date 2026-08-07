@@ -1921,6 +1921,19 @@ textarea:focus {
   margin-bottom: 14px;
 }
 
+.prompt-toolbar,
+.rewrite-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.prompt-toolbar.trailing {
+  justify-content: flex-end;
+  margin: 8px 0 4px;
+}
+
 .prompt-card p {
   margin-top: 8px;
   font-size: 20px;
@@ -1961,6 +1974,32 @@ textarea:focus {
 
 .secondary-action.full {
   width: 100%;
+}
+
+.speech-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border: 1px solid rgba(0, 200, 111, 0.24);
+  border-radius: 999px;
+  background: rgba(0, 200, 111, 0.08);
+  padding: 7px 10px;
+  color: var(--green-strong);
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.speech-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.secondary-action.listening {
+  border-color: rgba(255, 106, 74, 0.38);
+  background: #fff8f5;
+  color: #c64f34;
 }
 
 .hint-box {
@@ -2131,6 +2170,18 @@ textarea:focus {
 .dialogue-row.user .avatar {
   grid-column: 2;
   grid-row: 1;
+}
+
+.dialogue-bubble {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.dialogue-row.user .dialogue-bubble {
+  grid-column: 1;
+  grid-row: 1;
+  justify-items: end;
 }
 
 .dialogue-row.user p {

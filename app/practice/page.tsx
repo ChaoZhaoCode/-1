@@ -13,6 +13,7 @@ import {
   type TrainingPattern,
   type TrainingProgress
 } from "@/lib/training-system";
+import { SpeakButton, VoiceInputButton } from "@/components/speech-tools";
 
 type Evaluation = {
   source: "deepseek" | "mock";
@@ -399,7 +400,10 @@ export default function PracticePage() {
               return (
                 <div key={message.id} className={message.role === "ai" ? "dialogue-row ai" : "dialogue-row user"}>
                   <div className="avatar">{message.role === "ai" ? "AI" : "你"}</div>
-                  <p>{message.text}</p>
+                  <div className="dialogue-bubble">
+                    <p>{message.text}</p>
+                    {message.role === "ai" ? <SpeakButton text={message.text} label="播放" /> : null}
+                  </div>
                 </div>
               );
             })}
@@ -419,6 +423,7 @@ export default function PracticePage() {
                 <Send size={18} />
                 {isLoading ? "评估中" : "发送回复"}
               </button>
+              <VoiceInputButton onTranscript={(text) => setAnswer((current) => `${current}${current ? " " : ""}${text}`)} />
               <button className="secondary-action" onClick={clearConversation}>
                 <Trash2 size={18} />
                 清空记录
