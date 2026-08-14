@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, Eye, EyeOff, RotateCcw, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Eye, EyeOff, Loader2, RotateCcw, Send } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -30,19 +30,76 @@ type Evaluation = {
   fillInHint: string;
 };
 
+type CardSessionQuestion = {
+  prompt: string;
+  modelAnswer: string;
+  source: "generated" | "imported";
+};
+
+type CardSession = {
+  questionIndex: number;
+  answer: string;
+  showHint: boolean;
+  evaluation: Evaluation | null;
+  extraQuestions: CardSessionQuestion[];
+  updatedAt: number;
+};
+
+type CardSessions = Record<string, CardSession>;
+
+const CARD_SESSION_KEY = "forced-output-card-sessions-v1";
+
 const chooseCard = (index: number) => {
   const normalizedIndex = ((index % trainingPatterns.length) + trainingPatterns.length) % trainingPatterns.length;
   return trainingPatterns[normalizedIndex];
 };
 
+const createEmptySession = (): CardSession => ({
+  questionIndex: 0,
+  answer: "",
+  showHint: false,
+  evaluation: null,
+  extraQuestions: [],
+  updatedAt: Date.now()
+});
+
+const isEvaluation = (value: unknown): value is Evaluation => {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<Evaluation>;
+  return typeof record.mainIssue === "string" && typeof record.rewrite === "string";
+};
+
+const mergeCardSessions = (stored: unknown): CardSessions => {
+  if (!stored || typeof stored !== "object") return {};
+
+  const incoming = stored as Record<string, Partial<CardSession>>;
+  return Object.fromEntries(
+    Object.entries(incoming).map(([id, item]) => [
+      id,
+      {
+        questionIndex: Number.isInteger(item.questionIndex) ? Math.max(0, Number(item.questionIndex)) : 0,
+        answer: typeof item.answer === "string" ? item.answer : "",
+        showHint: Boolean(item.showHint),
+        evaluation: isEvaluation(item.evaluation) ? item.evaluation : null,
+        extraQuestions: Array.isArray(item.extraQuestions)
+          ? item.extraQuestions.filter(
+              (question): question is CardSessionQuestion =>
+                typeof question?.prompt === "string" && typeof question?.modelAnswer === "string"
+            )
+          : [],
+        updatedAt: Number.isFinite(item.updatedAt) ? Number(item.updatedAt) : Date.now()
+      }
+    ])
+  );
+};
+
 export default function CardsPage() {
   const [progress, setProgress] = useState<TrainingProgress>(() => mergeProgress(null));
   const [cardIndex, setCardIndex] = useState(0);
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [answer, setAnswer] = useState("");
-  const [showHint, setShowHint] = useState(false);
-  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [cardSessions, setCardSessions] = useState<CardSessions>({});
+  const [hasLoadedSessions, setHasLoadedSessions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingQuestion, setIsGeneratingQuestion] = useState(false);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TRAINING_PROGRESS_KEY);
@@ -58,8 +115,37 @@ export default function CardsPage() {
     window.localStorage.setItem(TRAINING_PROGRESS_KEY, JSON.stringify(progress));
   }, [progress]);
 
+  useEffect(() => {
+    const stored = window.localStorage.getItem(CARD_SESSION_KEY);
+    if (!stored) {
+      setHasLoadedSessions(true);
+      return;
+    }
+    try {
+      setCardSessions(mergeCardSessions(JSON.parse(stored)));
+    } catch {
+      window.localStorage.removeItem(CARD_SESSION_KEY);
+    } finally {
+      setHasLoadedSessions(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedSessions) return;
+    window.localStorage.setItem(CARD_SESSION_KEY, JSON.stringify(cardSessions));
+  }, [cardSessions, hasLoadedSessions]);
+
   const activeCard = useMemo(() => chooseCard(cardIndex), [cardIndex]);
-  const activeQuestions = useMemo(() => getCardPrompts(activeCard), [activeCard]);
+  const activeSession = cardSessions[activeCard.id] ?? createEmptySession();
+  const baseQuestions = useMemo(() => getCardPrompts(activeCard), [activeCard]);
+  const activeQuestions = useMemo(
+    () => [...baseQuestions, ...activeSession.extraQuestions],
+    [activeSession.extraQuestions, baseQuestions]
+  );
+  const questionIndex = Math.min(activeSession.questionIndex, Math.max(0, activeQuestions.length - 1));
+  const answer = activeSession.answer;
+  const showHint = activeSession.showHint;
+  const evaluation = activeSession.evaluation;
   const activeQuestion = activeQuestions[questionIndex] ?? activeQuestions[0];
   const activeEvalPattern = useMemo(
     () => ({
@@ -79,11 +165,48 @@ export default function CardsPage() {
       mastered: values.filter((item) => item.status === "mastered").length
     };
   }, [progress]);
+  const questionLabel =
+    questionIndex < baseQuestions.length
+      ? `题目 ${questionIndex + 1}/${baseQuestions.length}`
+      : `巩固题 ${questionIndex - baseQuestions.length + 1}`;
+  const nextQuestionLabel =
+    questionIndex < baseQuestions.length - 1
+      ? "进入下一题"
+      : questionIndex < baseQuestions.length
+        ? "继续巩固一题"
+        : "再来一题";
+  const canMoveToNextCard = questionIndex + 1 >= baseQuestions.length;
+
+  const updateActiveSession = (patch: Partial<CardSession>) => {
+    setCardSessions((current) => ({
+      ...current,
+      [activeCard.id]: {
+        ...createEmptySession(),
+        ...current[activeCard.id],
+        ...patch,
+        updatedAt: Date.now()
+      }
+    }));
+  };
+
+  const markCardSeen = () => {
+    setProgress((current) => {
+      const item = current[activeCard.id];
+      return {
+        ...current,
+        [activeCard.id]: {
+          ...item,
+          cardPasses: item.cardPasses === 0 ? 1 : item.cardPasses,
+          status: item.status === "new" || item.status === "failed_in_scene" ? "seen" : item.status
+        }
+      };
+    });
+  };
 
   const submit = async () => {
     if (!answer.trim() || isLoading) return;
     setIsLoading(true);
-    setEvaluation(null);
+    updateActiveSession({ evaluation: null });
 
     try {
       const response = await fetch("/api/evaluate-output", {
@@ -98,7 +221,10 @@ export default function CardsPage() {
         })
       });
       const result = (await response.json()) as Evaluation;
-      setEvaluation(result);
+      updateActiveSession({ evaluation: result });
+      if (result.passed && questionIndex + 1 >= baseQuestions.length) {
+        markCardSeen();
+      }
       if (!result.passed) {
         setProgress((current) => ({
           ...current,
@@ -113,38 +239,69 @@ export default function CardsPage() {
     }
   };
 
-  const nextCard = () => {
+  const generateReinforcementQuestion = async () => {
+    setIsGeneratingQuestion(true);
+    try {
+      const response = await fetch("/api/card-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetPattern: activeCard,
+          previousPrompts: activeQuestions.map((question) => question.prompt),
+          round: questionIndex + 2
+        })
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as CardSessionQuestion;
+    } finally {
+      setIsGeneratingQuestion(false);
+    }
+  };
+
+  const continueCurrentCard = async () => {
     if (questionIndex < activeQuestions.length - 1) {
-      setAnswer("");
-      setEvaluation(null);
-      setShowHint(false);
-      setQuestionIndex((value) => value + 1);
+      updateActiveSession({
+        answer: "",
+        evaluation: null,
+        showHint: false,
+        questionIndex: questionIndex + 1
+      });
       return;
     }
 
-    setProgress((current) => {
-      const item = current[activeCard.id];
-      const nextPasses = item.cardPasses + 1;
+    const question = await generateReinforcementQuestion();
+    if (!question) return;
+
+    setCardSessions((current) => {
+      const session = {
+        ...createEmptySession(),
+        ...current[activeCard.id]
+      };
       return {
         ...current,
         [activeCard.id]: {
-          ...item,
-          cardPasses: nextPasses,
-          status: item.status === "new" || item.status === "failed_in_scene" ? "seen" : item.status
+          ...session,
+          extraQuestions: [...session.extraQuestions, question],
+          questionIndex: questionIndex + 1,
+          answer: "",
+          evaluation: null,
+          showHint: false,
+          updatedAt: Date.now()
         }
       };
     });
-    setAnswer("");
-    setEvaluation(null);
-    setShowHint(false);
-    setQuestionIndex(0);
+  };
+
+  const nextCard = () => {
     setCardIndex((value) => value + 1);
   };
 
   const resetCurrent = () => {
-    setAnswer("");
-    setEvaluation(null);
-    setShowHint(false);
+    updateActiveSession({
+      answer: "",
+      evaluation: null,
+      showHint: false
+    });
   };
 
   return (
@@ -177,10 +334,6 @@ export default function CardsPage() {
                 className={pattern.id === activeCard.id ? "mini-pattern active" : "mini-pattern"}
                 onClick={() => {
                   setCardIndex(trainingPatterns.findIndex((item) => item.id === pattern.id));
-                  setQuestionIndex(0);
-                  setAnswer("");
-                  setEvaluation(null);
-                  setShowHint(false);
                 }}
               >
                 <span>{pattern.pattern}</span>
@@ -193,7 +346,7 @@ export default function CardsPage() {
         <section className="drill-panel main-drill-panel">
           <div className="prompt-card">
             <span className="small-label">
-              中文意图 · 题目 {questionIndex + 1}/{activeQuestions.length}
+              中文意图 · {questionLabel}
             </span>
             <div className="prompt-toolbar trailing">
               <SpeakButton text={`${activeCard.pattern}。${activeCard.structureHint}`} label="播放句式" />
@@ -201,7 +354,7 @@ export default function CardsPage() {
             <p>{activeQuestion.prompt}</p>
           </div>
 
-          <button className="ghost-action" onClick={() => setShowHint((value) => !value)}>
+          <button className="ghost-action" onClick={() => updateActiveSession({ showHint: !showHint })}>
             {showHint ? <EyeOff size={16} /> : <Eye size={16} />}
             {showHint ? "收起结构" : "显示句式结构"}
           </button>
@@ -217,7 +370,7 @@ export default function CardsPage() {
             <span>你的日语</span>
             <textarea
               value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
+              onChange={(event) => updateActiveSession({ answer: event.target.value })}
               placeholder="先不要看答案，直接把中文意图说成日语。"
             />
           </label>
@@ -227,7 +380,7 @@ export default function CardsPage() {
               <Send size={18} />
               {isLoading ? "评估中" : "提交纠正"}
             </button>
-            <VoiceInputButton onTranscript={(text) => setAnswer((current) => `${current}${current ? " " : ""}${text}`)} />
+            <VoiceInputButton onTranscript={(text) => updateActiveSession({ answer: `${answer}${answer ? " " : ""}${text}` })} />
             <button className="secondary-action" onClick={resetCurrent}>
               <RotateCcw size={18} />
               重写
@@ -238,8 +391,11 @@ export default function CardsPage() {
             <FeedbackPanel
               evaluation={evaluation}
               activeCard={activeEvalPattern}
-              nextLabel={questionIndex < activeQuestions.length - 1 ? "进入下一题" : "进入下一个句式"}
-              onNext={nextCard}
+              nextLabel={nextQuestionLabel}
+              onNext={continueCurrentCard}
+              secondaryLabel={canMoveToNextCard ? "进入下一个句式" : undefined}
+              onSecondary={canMoveToNextCard ? nextCard : undefined}
+              isGeneratingQuestion={isGeneratingQuestion}
             />
           ) : (
             <div className="quiet-note">先输出，再看结构。卡片通过后会进入场景池。</div>
@@ -266,12 +422,18 @@ function FeedbackPanel({
   evaluation,
   activeCard,
   nextLabel,
-  onNext
+  onNext,
+  secondaryLabel,
+  onSecondary,
+  isGeneratingQuestion
 }: {
   evaluation: Evaluation;
   activeCard: TrainingPattern;
   nextLabel: string;
   onNext: () => void;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
+  isGeneratingQuestion: boolean;
 }) {
   return (
     <div className={evaluation.passed ? "feedback-box pass" : "feedback-box fail"}>
@@ -300,10 +462,17 @@ function FeedbackPanel({
       </div>
 
       {evaluation.passed ? (
-        <button className="primary-action" onClick={onNext}>
-          <CheckCircle2 size={18} />
-          {nextLabel}
-        </button>
+        <div className="feedback-actions">
+          <button className="primary-action" disabled={isGeneratingQuestion} onClick={onNext}>
+            {isGeneratingQuestion ? <Loader2 size={18} /> : <CheckCircle2 size={18} />}
+            {isGeneratingQuestion ? "出题中" : nextLabel}
+          </button>
+          {secondaryLabel && onSecondary ? (
+            <button className="secondary-action" disabled={isGeneratingQuestion} onClick={onSecondary}>
+              {secondaryLabel}
+            </button>
+          ) : null}
+        </div>
       ) : (
         <p className="retry-copy">{evaluation.retryPrompt}</p>
       )}

@@ -2062,6 +2062,12 @@ textarea:focus {
   margin-top: 18px;
 }
 
+.feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .feedback-box.pass,
 .coach-block.pass {
   border-color: rgba(0, 200, 111, 0.28);
