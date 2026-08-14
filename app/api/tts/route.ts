@@ -6,6 +6,8 @@ const ELEVENLABS_SHARED_VOICES_URL = "https://api.elevenlabs.io/v1/shared-voices
 const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 const DEFAULT_OUTPUT_FORMAT = "mp3_44100_128";
 const DEFAULT_VOICE_NAME = "Shizuka";
+const DEFAULT_AZURE_VOICE = "ja-JP-NanamiNeural";
+const AZURE_OUTPUT_FORMAT = "audio-24khz-96kbitrate-mono-mp3";
 
 type TtsRequest = {
   text?: string;
@@ -31,6 +33,59 @@ let cachedVoiceId: string | null = null;
 const cleanText = (value: unknown) => {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, 500);
+};
+
+const escapeXml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+
+const makeAudioResponse = (audio: ArrayBuffer, contentType: string) =>
+  new Response(audio, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "private, max-age=86400"
+    }
+  });
+
+const makeFallbackError = (status: number, error: string, detail = "") =>
+  NextResponse.json({ error, detail: detail.slice(0, 240), fallback: "browser" }, { status });
+
+const synthesizeWithAzure = async (text: string) => {
+  const key = process.env.AZURE_SPEECH_KEY;
+  const region = process.env.AZURE_SPEECH_REGION;
+  const voice = process.env.AZURE_SPEECH_VOICE ?? DEFAULT_AZURE_VOICE;
+
+  if (!key || !region) return null;
+
+  const ssml = [
+    '<speak version="1.0" xml:lang="ja-JP">',
+    `<voice xml:lang="ja-JP" xml:gender="${voice.includes("Keita") || voice.includes("Daichi") || voice.includes("Naoki") ? "Male" : "Female"}" name="${escapeXml(voice)}">`,
+    escapeXml(text),
+    "</voice>",
+    "</speak>"
+  ].join("");
+
+  const response = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/ssml+xml",
+      "Ocp-Apim-Subscription-Key": key,
+      "X-Microsoft-OutputFormat": process.env.AZURE_SPEECH_OUTPUT_FORMAT ?? AZURE_OUTPUT_FORMAT,
+      "User-Agent": "japanese-speaking-mvp"
+    },
+    body: ssml
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    return makeFallbackError(response.status, "Azure Speech request failed", detail);
+  }
+
+  return makeAudioResponse(await response.arrayBuffer(), response.headers.get("content-type") ?? "audio/mpeg");
 };
 
 const resolveVoiceId = async (apiKey: string) => {
@@ -69,30 +124,13 @@ const resolveVoiceId = async (apiKey: string) => {
   return voiceId;
 };
 
-export async function POST(request: Request) {
+const synthesizeWithElevenLabs = async (text: string) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "ElevenLabs is not configured", fallback: "browser" },
-      { status: 503 }
-    );
-  }
-
-  const body = (await request.json().catch(() => ({}))) as TtsRequest;
-  const text = cleanText(body.text);
-
-  if (!text) {
-    return NextResponse.json({ error: "text is required" }, { status: 400 });
-  }
-
+  if (!apiKey) return null;
   const voiceId = await resolveVoiceId(apiKey);
 
   if (!voiceId) {
-    return NextResponse.json(
-      { error: "ElevenLabs voice was not found", fallback: "browser" },
-      { status: 503 }
-    );
+    return makeFallbackError(503, "ElevenLabs voice was not found");
   }
 
   const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT ?? DEFAULT_OUTPUT_FORMAT;
@@ -119,17 +157,25 @@ export async function POST(request: Request) {
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    return NextResponse.json(
-      { error: "ElevenLabs request failed", detail: errorText.slice(0, 240), fallback: "browser" },
-      { status: response.status }
-    );
+    return makeFallbackError(response.status, "ElevenLabs request failed", errorText);
   }
 
-  const audio = await response.arrayBuffer();
-  return new Response(audio, {
-    headers: {
-      "Content-Type": response.headers.get("content-type") ?? "audio/mpeg",
-      "Cache-Control": "private, max-age=86400"
-    }
-  });
+  return makeAudioResponse(await response.arrayBuffer(), response.headers.get("content-type") ?? "audio/mpeg");
+};
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as TtsRequest;
+  const text = cleanText(body.text);
+
+  if (!text) {
+    return NextResponse.json({ error: "text is required" }, { status: 400 });
+  }
+
+  const azureResponse = await synthesizeWithAzure(text);
+  if (azureResponse) return azureResponse;
+
+  const elevenLabsResponse = await synthesizeWithElevenLabs(text);
+  if (elevenLabsResponse) return elevenLabsResponse;
+
+  return makeFallbackError(503, "Text to speech is not configured");
 }

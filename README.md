@@ -13,6 +13,9 @@ Create `.env.local` from `.env.local.example`:
 
 ```bash
 DEEPSEEK_API_KEY=your_deepseek_api_key
+AZURE_SPEECH_KEY=your_azure_speech_key
+AZURE_SPEECH_REGION=japaneast
+AZURE_SPEECH_VOICE=ja-JP-NanamiNeural
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ELEVENLABS_VOICE_NAME=Shizuka
 # Optional, use this when voice search does not find Shizuka in your account.
@@ -30,6 +33,9 @@ This project uses Next.js API routes to call DeepSeek, so GitHub Pages is not en
 
 ```bash
 DEEPSEEK_API_KEY=your_deepseek_api_key
+AZURE_SPEECH_KEY=your_azure_speech_key
+AZURE_SPEECH_REGION=japaneast
+AZURE_SPEECH_VOICE=ja-JP-NanamiNeural
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ELEVENLABS_VOICE_NAME=Shizuka
 ```
