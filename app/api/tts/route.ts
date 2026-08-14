@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 const ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 const ELEVENLABS_VOICES_URL = "https://api.elevenlabs.io/v2/voices";
+const ELEVENLABS_SHARED_VOICES_URL = "https://api.elevenlabs.io/v1/shared-voices";
 const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 const DEFAULT_OUTPUT_FORMAT = "mp3_44100_128";
 const DEFAULT_VOICE_NAME = "Shizuka";
@@ -14,6 +15,14 @@ type ElevenLabsVoiceSearchResponse = {
   voices?: Array<{
     voice_id?: string;
     name?: string;
+  }>;
+};
+
+type ElevenLabsSharedVoicesResponse = {
+  voices?: Array<{
+    voice_id?: string;
+    name?: string;
+    public_owner_id?: string;
   }>;
 };
 
@@ -40,7 +49,22 @@ const resolveVoiceId = async (apiKey: string) => {
   const voices = data.voices ?? [];
   const exact = voices.find((voice) => voice.name?.toLowerCase() === voiceName.toLowerCase());
   const partial = voices.find((voice) => voice.name?.toLowerCase().includes(voiceName.toLowerCase()));
-  const voiceId = exact?.voice_id ?? partial?.voice_id ?? voices[0]?.voice_id ?? null;
+  let voiceId = exact?.voice_id ?? partial?.voice_id ?? voices[0]?.voice_id ?? null;
+
+  if (!voiceId) {
+    const sharedResponse = await fetch(
+      `${ELEVENLABS_SHARED_VOICES_URL}?search=${encodeURIComponent(voiceName)}&language=ja&page_size=20`,
+      { headers: { "xi-api-key": apiKey } }
+    );
+    if (sharedResponse.ok) {
+      const sharedData = (await sharedResponse.json().catch(() => ({}))) as ElevenLabsSharedVoicesResponse;
+      const sharedVoices = sharedData.voices ?? [];
+      const sharedExact = sharedVoices.find((voice) => voice.name?.toLowerCase() === voiceName.toLowerCase());
+      const sharedPartial = sharedVoices.find((voice) => voice.name?.toLowerCase().includes(voiceName.toLowerCase()));
+      voiceId = sharedExact?.voice_id ?? sharedPartial?.voice_id ?? sharedVoices[0]?.voice_id ?? null;
+    }
+  }
+
   cachedVoiceId = voiceId;
   return voiceId;
 };
