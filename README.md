@@ -17,8 +17,8 @@ AZURE_SPEECH_KEY=your_azure_speech_key
 AZURE_SPEECH_REGION=japaneast
 AZURE_SPEECH_VOICE=ja-JP-NanamiNeural
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
-ELEVENLABS_VOICE_NAME=Shizuka
-# Optional, use this when voice search does not find Shizuka in your account.
+ELEVENLABS_VOICE_NAME=Bella
+# Optional, use this when voice search does not find the selected premade voice in your account.
 ELEVENLABS_VOICE_ID=your_elevenlabs_voice_id
 ```
 
@@ -37,7 +37,7 @@ AZURE_SPEECH_KEY=your_azure_speech_key
 AZURE_SPEECH_REGION=japaneast
 AZURE_SPEECH_VOICE=ja-JP-NanamiNeural
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
-ELEVENLABS_VOICE_NAME=Shizuka
+ELEVENLABS_VOICE_NAME=Bella
 ```
 
 5. Deploy.

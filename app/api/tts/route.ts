@@ -5,7 +5,7 @@ const ELEVENLABS_VOICES_URL = "https://api.elevenlabs.io/v2/voices";
 const ELEVENLABS_SHARED_VOICES_URL = "https://api.elevenlabs.io/v1/shared-voices";
 const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 const DEFAULT_OUTPUT_FORMAT = "mp3_44100_128";
-const DEFAULT_VOICE_NAME = "Shizuka";
+const DEFAULT_VOICE_NAME = "Bella";
 const DEFAULT_AZURE_VOICE = "ja-JP-NanamiNeural";
 const AZURE_OUTPUT_FORMAT = "audio-24khz-96kbitrate-mono-mp3";
 
