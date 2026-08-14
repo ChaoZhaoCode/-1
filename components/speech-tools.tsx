@@ -28,16 +28,21 @@ const getJapaneseVoice = () => {
   return voices.find((voice) => voice.lang === "ja-JP") ?? voices.find((voice) => voice.lang.startsWith("ja")) ?? null;
 };
 
+const audioCache = new Map<string, string>();
+
 export function SpeakButton({ text, label = "播放" }: { text: string; label?: string }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [supported, setSupported] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    setSupported(typeof window !== "undefined" && "speechSynthesis" in window);
+    return () => {
+      audioRef.current?.pause();
+    };
   }, []);
 
-  const speak = () => {
-    if (!text.trim() || !("speechSynthesis" in window)) return;
+  const speakWithBrowserVoice = () => {
+    if (!text.trim() || !("speechSynthesis" in window)) return false;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text.trim());
     utterance.lang = "ja-JP";
@@ -49,12 +54,59 @@ export function SpeakButton({ text, label = "播放" }: { text: string; label?: 
     utterance.onerror = () => setIsSpeaking(false);
     setIsSpeaking(true);
     window.speechSynthesis.speak(utterance);
+    return true;
+  };
+
+  const playAudioUrl = async (url: string) => {
+    audioRef.current?.pause();
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.onended = () => setIsSpeaking(false);
+    audio.onerror = () => {
+      setIsSpeaking(false);
+      speakWithBrowserVoice();
+    };
+    setIsSpeaking(true);
+    await audio.play();
+  };
+
+  const speak = async () => {
+    const value = text.trim();
+    if (!value || isLoading) return;
+
+    if (audioCache.has(value)) {
+      await playAudioUrl(audioCache.get(value) as string);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: value })
+      });
+
+      if (!response.ok) {
+        speakWithBrowserVoice();
+        return;
+      }
+
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      audioCache.set(value, audioUrl);
+      await playAudioUrl(audioUrl);
+    } catch {
+      speakWithBrowserVoice();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <button className="speech-action" type="button" disabled={!supported || !text.trim()} onClick={speak} title={label}>
+    <button className="speech-action" type="button" disabled={!text.trim() || isLoading} onClick={speak} title={label}>
       <Volume2 size={16} />
-      <span>{isSpeaking ? "播放中" : label}</span>
+      <span>{isLoading ? "生成中" : isSpeaking ? "播放中" : label}</span>
     </button>
   );
 }
