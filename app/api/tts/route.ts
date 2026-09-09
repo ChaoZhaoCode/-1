@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isRateLimited } from "@/lib/api-rate-limit";
 
 const ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 const ELEVENLABS_VOICES_URL = "https://api.elevenlabs.io/v2/voices";
@@ -164,6 +165,9 @@ const synthesizeWithElevenLabs = async (text: string) => {
 };
 
 export async function POST(request: Request) {
+  if (isRateLimited(request, "tts", 100, 60 * 60 * 1000)) {
+    return makeFallbackError(429, "Speech request limit reached");
+  }
   const body = (await request.json().catch(() => ({}))) as TtsRequest;
   const text = cleanText(body.text);
 

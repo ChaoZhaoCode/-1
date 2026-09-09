@@ -30,7 +30,15 @@ const getJapaneseVoice = () => {
 
 const audioCache = new Map<string, string>();
 
-export function SpeakButton({ text, label = "播放" }: { text: string; label?: string }) {
+export function SpeakButton({
+  text,
+  label = "播放",
+  playbackRate = 1
+}: {
+  text: string;
+  label?: string;
+  playbackRate?: 0.8 | 1;
+}) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -60,6 +68,7 @@ export function SpeakButton({ text, label = "播放" }: { text: string; label?: 
   const playAudioUrl = async (url: string) => {
     audioRef.current?.pause();
     const audio = new Audio(url);
+    audio.playbackRate = playbackRate;
     audioRef.current = audio;
     audio.onended = () => setIsSpeaking(false);
     audio.onerror = () => {
@@ -109,6 +118,56 @@ export function SpeakButton({ text, label = "播放" }: { text: string; label?: 
       <span>{isLoading ? "生成中" : isSpeaking ? "播放中" : label}</span>
     </button>
   );
+}
+
+export function AutoSpeak({
+  text,
+  enabled,
+  playbackRate = 1
+}: {
+  text: string;
+  enabled: boolean;
+  playbackRate?: 0.8 | 1;
+}) {
+  const lastPlayedRef = useRef("");
+
+  useEffect(() => {
+    const value = text.trim();
+    if (!enabled || !value || lastPlayedRef.current === value) return;
+    lastPlayedRef.current = value;
+    let audio: HTMLAudioElement | null = null;
+    let cancelled = false;
+
+    const play = async () => {
+      try {
+        let url = audioCache.get(value);
+        if (!url) {
+          const response = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: value })
+          });
+          if (!response.ok || cancelled) return;
+          url = URL.createObjectURL(await response.blob());
+          audioCache.set(value, url);
+        }
+        if (cancelled) return;
+        audio = new Audio(url);
+        audio.playbackRate = playbackRate;
+        await audio.play();
+      } catch {
+        // Browsers may block autoplay before the learner interacts with the page.
+      }
+    };
+
+    void play();
+    return () => {
+      cancelled = true;
+      audio?.pause();
+    };
+  }, [enabled, playbackRate, text]);
+
+  return null;
 }
 
 export function VoiceInputButton({ onTranscript }: { onTranscript: (text: string) => void }) {

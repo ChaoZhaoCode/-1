@@ -1,169 +1,93 @@
 "use client";
 
-import { ArrowRight, BookOpen, FileText, Library, MessageSquareText, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, Clock3, Flame, RotateCcw } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { TRAINING_PROGRESS_KEY, mergeProgress, trainingPatterns, type TrainingProgress } from "@/lib/training-system";
+import { AppShell } from "@/components/app-shell";
+import { courseChapters, getCourseDay } from "@/lib/course-v2";
+import { createLearningState, loadLearningState, localDateKey, saveLearningState, selectDueReviews, type LearningState } from "@/lib/learning-state";
 
 export default function Home() {
-  const [progress, setProgress] = useState<TrainingProgress>(() => mergeProgress(null));
+  const [state, setState] = useState<LearningState>(() => createLearningState());
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(TRAINING_PROGRESS_KEY);
-    if (!stored) return;
-    try {
-      setProgress(mergeProgress(JSON.parse(stored)));
-    } catch {
-      window.localStorage.removeItem(TRAINING_PROGRESS_KEY);
-    }
+    setState(loadLearningState());
+    setLoaded(true);
   }, []);
 
-  const stats = useMemo(() => {
-    const values = Object.values(progress);
-    return {
-      total: trainingPatterns.length,
-      newCount: values.filter((item) => item.status === "new").length,
-      cardReady: values.filter((item) => item.status === "seen").length,
-      review: values.filter((item) => item.status === "failed_in_scene").length,
-      mastered: values.filter((item) => item.status === "mastered").length
-    };
-  }, [progress]);
+  const unfinished = useMemo(
+    () => Object.values(state.sessions)
+      .filter((session) => session.phase !== "complete")
+      .sort((a, b) => (b.updatedAt ?? b.date).localeCompare(a.updatedAt ?? a.date))[0],
+    [state.sessions]
+  );
+  const activeDayNumber = unfinished?.day ?? state.currentDay;
+  const firstChapterComplete = activeDayNumber > 4;
+  const day = getCourseDay(Math.min(activeDayNumber, 4));
+  const dueCount = selectDueReviews(state, []).length;
+  const unfinishedFromEarlierDay = Boolean(unfinished && unfinished.date < localDateKey());
+  const latestIssue = useMemo(() => {
+    const sessions = Object.values(state.sessions).sort((a, b) => b.date.localeCompare(a.date));
+    return sessions.flatMap((session) => session.coachNotes).at(-1) ?? "把回答从一句扩展到理由和具体例子。";
+  }, [state.sessions]);
 
-  const nextAction = stats.review > 0 ? "先回炉失败句式" : stats.cardReady > 0 ? "进入场景强制输出" : "先做句式卡片";
-
-  const resetProgress = () => {
-    const next = mergeProgress(null);
-    setProgress(next);
-    window.localStorage.setItem(TRAINING_PROGRESS_KEY, JSON.stringify(next));
+  const clearCurrentSession = () => {
+    if (!unfinished || !window.confirm("只清除当前未完成课程，并保留句式学习记录吗？")) return;
+    const next = { ...state, sessions: { ...state.sessions } };
+    const key = Object.entries(next.sessions).find(([, session]) => session === unfinished)?.[0];
+    if (key) delete next.sessions[key];
+    setState(next);
+    saveLearningState(next);
   };
 
   return (
-    <main className="training-hub">
-      <nav className="panda-nav" aria-label="主导航">
-        <Link className="brand-mark" href="/">
-          <span>日</span>
-          Output Lab
-        </Link>
-        <div className="nav-links">
-          <Link href="/cards">卡片</Link>
-          <Link href="/practice">练习</Link>
-          <Link href="/materials">资料</Link>
-          <button onClick={resetProgress}>
-            <RotateCcw size={16} />
-            重置
-          </button>
-        </div>
-      </nav>
+    <AppShell>
+      <main className="v2-home">
+        <section className="today-hero">
+          <div className="today-copy">
+            <p className="v2-kicker">{firstChapterComplete ? "第一章已完成" : `DAY ${day.day} · 餐厅里的连续交流`}</p>
+            <h1>{firstChapterComplete ? "你已经完成餐厅章节。" : day.title}</h1>
+            <p>{firstChapterComplete ? "可以回到课程中复练任意一天。后续章节将按同一课程标准加入。" : day.goal}</p>
+          </div>
+          <div className="today-action">
+            <div className="duration"><Clock3 size={17} /> 约 30 分钟</div>
+            <Link className="v2-primary" href={firstChapterComplete ? "/course" : `/practice?day=${day.day}`}>
+              {unfinished ? "继续课程" : firstChapterComplete ? "查看课程" : "开始今天"}
+              <ArrowRight size={19} />
+            </Link>
+            {unfinishedFromEarlierDay ? <Link className="v2-secondary" href={`/practice?day=${day.day}&fresh=1`}>重新开始本课</Link> : null}
+          </div>
+        </section>
 
-      <header className="hub-hero">
-        <p className="eyebrow">N2 输出训练 MVP</p>
-        <h1>把懂的日语，练成能开口说的日语。</h1>
-        <p className="hero-copy">先用卡片激活句式，再进入场景强制输出。每一轮只练一个结构，成功才推进。</p>
-        <div className="hero-actions">
-          <Link className="primary-action" href="/cards">
-            开始句式卡片
-            <ArrowRight size={18} />
-          </Link>
-          <Link className="secondary-action" href="/practice">
-            进入场景练习
-          </Link>
-        </div>
-      </header>
+        <section className="today-context" aria-label="今日学习信息">
+          <div><span>今日复习</span><b>{dueCount} 个句式</b></div>
+          <div><span>连续学习</span><b><Flame size={17} /> {state.streak} 天</b></div>
+          <div className="context-wide"><span>最近需要改善</span><b>{latestIssue}</b></div>
+        </section>
 
-      <section className="hub-status" aria-label="学习进度">
-        <div className="next-card">
-          <Sparkles size={18} />
-          <span>今天建议</span>
-          <b>{nextAction}</b>
-        </div>
-        <div className="hub-stat-grid">
-          <span>
-            <b>{stats.total}</b>
-            总句式
-          </span>
-          <span>
-            <b>{stats.newCount}</b>
-            未练
-          </span>
-          <span>
-            <b>{stats.cardReady}</b>
-            可进场景
-          </span>
-          <span>
-            <b>{stats.review}</b>
-            回炉
-          </span>
-          <span>
-            <b>{stats.mastered}</b>
-            掌握
-          </span>
-        </div>
-      </section>
+        {!firstChapterComplete ? (
+          <section className="lesson-roadmap">
+            <div className="section-title">
+              <div><p className="v2-kicker">TODAY&apos;S FLOW</p><h2>今天只完成这四步</h2></div>
+              {unfinished ? <button className="v2-icon-text" onClick={clearCurrentSession} type="button"><RotateCcw size={16} /> 重开本课</button> : null}
+            </div>
+            <ol>
+              <li><span>01</span><div><b>复习</b><small>最多 5 个高优先句式</small></div></li>
+              <li><span>02</span><div><b>新句式</b><small>3 次中文到日语输出</small></div></li>
+              <li><span>03</span><div><b>场景对话</b><small>AI 主动推进话题</small></div></li>
+              <li><span>04</span><div><b>表达总结</b><small>留下今天最值得复用的表达</small></div></li>
+            </ol>
+          </section>
+        ) : null}
 
-      <section className="training-grid" aria-label="训练模块">
-        <ModuleCard
-          href="/cards"
-          icon={<BookOpen size={24} />}
-          index="01"
-          title="句式记忆卡片"
-          copy="看中文意图，先自己翻成日语；需要时再展开结构提示。"
-          featured
-        />
-        <ModuleCard
-          href="/practice"
-          icon={<MessageSquareText size={24} />}
-          index="02"
-          title="场景强制输出"
-          copy="AI 一句一句接话；本轮句式没用上，就停在当前轮重说。"
-          featured
-        />
-        <ModuleCard
-          href="/materials"
-          icon={<FileText size={24} />}
-          index="资料"
-          title="导入材料库"
-          copy="查看已导入内容，用来继续扩展课程、题库和场景素材。"
-        />
-        <ModuleCard
-          href="/patterns"
-          icon={<Library size={24} />}
-          index="总库"
-          title="150 句式库"
-          copy="保留完整句式总库，后续逐步纳入卡片与场景训练。"
-        />
-      </section>
-    </main>
-  );
-}
-
-function ModuleCard({
-  href,
-  icon,
-  index,
-  title,
-  copy,
-  featured = false
-}: {
-  href: string;
-  icon: ReactNode;
-  index: string;
-  title: string;
-  copy: string;
-  featured?: boolean;
-}) {
-  return (
-    <Link className={featured ? "training-card primary" : "training-card"} href={href}>
-      <div className="card-topline">
-        {icon}
-        <span>{index}</span>
-      </div>
-      <h2>{title}</h2>
-      <p>{copy}</p>
-      <small>
-        打开
-        <ArrowRight size={15} />
-      </small>
-    </Link>
+        <section className="chapter-peek">
+          <div><CalendarDays size={20} /><span>60 天课程</span></div>
+          <p>{courseChapters.length} 个场景章节，每章从办成事情逐步走向经历、感受和观点。</p>
+          <Link href="/course">查看课程安排 <ArrowRight size={16} /></Link>
+        </section>
+        {!loaded ? <span className="sr-only">正在读取本地进度</span> : null}
+      </main>
+    </AppShell>
   );
 }
